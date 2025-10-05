@@ -9,20 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
-import {
-  X,
-  Search,
-  Route,
-  Navigation,
-  LocateFixed,
-  Layers,
-  Ruler,
-  Trash2,
-  Bike,
-  Car,
-  Footprints,
-  Train,
-} from "lucide-react"
+import { X, Search, Route, Navigation, LocateFixed, Ruler, Trash2, Bike, Car, Footprints } from "lucide-react"
 import type { LatLngExpression } from "leaflet"
 import { formatDistanceKm, haversineDistanceKm } from "@/lib/geo"
 import type * as GeoJSON from "geojson"
@@ -67,6 +54,9 @@ export default function GoogleLikeMap() {
   const isochroneLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
   const markerLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
   const measureLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
+  const userCircleRef = useRef<import("leaflet").CircleMarker | null>(null)
+  const measurePointsRef = useRef<[number, number][]>([])
+  const measurePolylineRef = useRef<import("leaflet").Polyline | null>(null)
   const [leafletReady, setLeafletReady] = useState(false)
 
   // UI state
@@ -83,7 +73,6 @@ export default function GoogleLikeMap() {
   const [avoidFerries, setAvoidFerries] = useState(false)
   const [activeTab, setActiveTab] = useState<"directions" | "isochrones" | "explore">("directions")
   const [showPanel, setShowPanel] = useState(true)
-  const [showLayers, setShowLayers] = useState(false)
   const [measureMode, setMeasureMode] = useState<"off" | "distance">("off")
   const [measuredKm, setMeasuredKm] = useState(0)
   const [centerBias, setCenterBias] = useState<{ lat: number; lon: number } | null>(null)
@@ -220,13 +209,25 @@ export default function GoogleLikeMap() {
     }
     L.control.layers(baseLayers, overlays, { position: "topright", collapsed: true }).addTo(map)
 
-    // Default to the user’s device location on first load (with fallback)
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords
           map.setView([latitude, longitude], 15)
-          L.marker([latitude, longitude]).addTo(markerLayerRef.current!).bindPopup("You are here").openPopup()
+          if (userCircleRef.current) {
+            userCircleRef.current.setLatLng([latitude, longitude])
+          } else {
+            userCircleRef.current = L.circleMarker([latitude, longitude], {
+              radius: 8,
+              color: "#2563eb",
+              weight: 2,
+              fillColor: "#60a5fa",
+              fillOpacity: 0.6,
+            })
+              .addTo(markerLayerRef.current!)
+              .bindPopup("You are here")
+              .openPopup()
+          }
           // set as default origin for directions
           setOrigin([latitude, longitude])
         },
@@ -241,16 +242,29 @@ export default function GoogleLikeMap() {
     map.on("click", async (e: any) => {
       const { lat, lng } = e.latlng
       if (measureModeRef.current === "distance") {
-        const layer = measureLayerRef.current!
-        const pts = (layer as any)._pointsArr || []
-        pts.push([lat, lng])
-        ;(layer as any)._pointsArr = pts
-        L.marker([lat, lng]).addTo(layer)
-        if (pts.length >= 2) {
+        const L = LRef.current!
+        measurePointsRef.current.push([lat, lng])
+        L.circleMarker([lat, lng], {
+          radius: 4,
+          color: "#16a34a",
+          weight: 2,
+          fillColor: "#16a34a",
+          fillOpacity: 0.9,
+        }).addTo(measureLayerRef.current!)
+
+        if (measurePointsRef.current.length >= 2) {
+          const pts = measurePointsRef.current
           const lastTwo = pts.slice(-2)
           const segKm = haversineDistanceKm(lastTwo[0], lastTwo[1])
           setMeasuredKm((prev) => prev + segKm)
-          L.polyline(lastTwo as LatLngExpression[], { color: "#16a34a", weight: 3 }).addTo(layer)
+          if (!measurePolylineRef.current) {
+            measurePolylineRef.current = L.polyline(pts as LatLngExpression[], {
+              color: "#16a34a",
+              weight: 3,
+            }).addTo(measureLayerRef.current!)
+          } else {
+            measurePolylineRef.current.setLatLngs(pts as LatLngExpression[])
+          }
         }
         return
       }
@@ -448,7 +462,21 @@ export default function GoogleLikeMap() {
       (pos) => {
         const { latitude, longitude } = pos.coords
         mapRef.current?.setView([latitude, longitude], 15)
-        L!.marker([latitude, longitude]).addTo(markerLayerRef.current!).bindPopup("You are here").openPopup()
+        if (userCircleRef.current) {
+          userCircleRef.current.setLatLng([latitude, longitude])
+        } else {
+          userCircleRef.current = L!
+            .circleMarker([latitude, longitude], {
+              radius: 8,
+              color: "#2563eb",
+              weight: 2,
+              fillColor: "#60a5fa",
+              fillOpacity: 0.6,
+            })
+            .addTo(markerLayerRef.current!)
+            .bindPopup("You are here")
+            .openPopup()
+        }
       },
       (err) => console.error("[v0] geolocation error", err),
       { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 },
@@ -461,8 +489,17 @@ export default function GoogleLikeMap() {
     isochroneLayerRef.current?.clearLayers()
     markerLayerRef.current?.clearLayers()
     measureLayerRef.current?.clearLayers()
+    measurePointsRef.current = []
+    if (measurePolylineRef.current) {
+      measurePolylineRef.current.remove()
+      measurePolylineRef.current = null
+    }
     setSteps([])
     setMeasuredKm(0)
+    // Re-add user circle if we had one and we cleared markers
+    if (userCircleRef.current) {
+      userCircleRef.current.addTo(markerLayerRef.current!)
+    }
   }, [])
 
   const toggleMeasure = useCallback(() => {
@@ -513,12 +550,7 @@ export default function GoogleLikeMap() {
             onChange={(e) => setSearchText(e.target.value)}
             className="border-0 shadow-none focus-visible:ring-0"
           />
-          <Button
-            variant="secondary"
-            onClick={() => {
-              /* no-op trigger; suggestions below */
-            }}
-          >
+          <Button variant="secondary" onClick={() => {}}>
             Search
           </Button>
         </div>
@@ -526,13 +558,8 @@ export default function GoogleLikeMap() {
           <ModeButton value="driving-car" icon={Car} label="Drive" />
           <ModeButton value="cycling-regular" icon={Bike} label="Bike" />
           <ModeButton value="foot-walking" icon={Footprints} label="Walk" />
-          <ModeButton value="driving-car" icon={Train} label="Transit" disabled />
-          {/* Not supported by ORS */}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setShowLayers((s) => !s)} aria-label="Map type">
-            <Layers className="h-4 w-4" />
-          </Button>
           <Button variant="secondary" onClick={locateMe} aria-label="Locate me">
             <LocateFixed className="h-4 w-4" />
           </Button>
@@ -752,27 +779,6 @@ export default function GoogleLikeMap() {
           <Button variant="secondary" onClick={() => setShowPanel(true)}>
             Open panel
           </Button>
-        </div>
-      )}
-
-      {/* Layers popover mimic */}
-      {showLayers && (
-        <div className="pointer-events-auto absolute right-3 top-[72px] z-20 w-[260px] rounded-lg border bg-card p-3 shadow">
-          <div className="mb-2 text-sm font-medium">Map type</div>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <div>Default (OSM)</div>
-            <div>Satellite (Esri World Imagery)</div>
-            <div>Topographic (Esri World Topo)</div>
-            <div className="text-xs">Use the native Leaflet layer control (top-left) to switch live.</div>
-          </div>
-          <div className="mt-3 text-xs text-muted-foreground">
-            Note: Google tiles are not used due to licensing. Using legal OSM/Esri sources.
-          </div>
-          <div className="mt-3">
-            <Button variant="secondary" onClick={() => setShowLayers(false)}>
-              Close
-            </Button>
-          </div>
         </div>
       )}
 
