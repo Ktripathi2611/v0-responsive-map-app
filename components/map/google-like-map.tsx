@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
-import { X, Search, Route, Navigation, LocateFixed, Ruler, Trash2, Bike, Car, Footprints } from "lucide-react"
+import { X, Route, Navigation, LocateFixed, Ruler, Trash2, Bike, Car, Footprints } from "lucide-react"
 import type { LatLngExpression } from "leaflet"
 import { formatDistanceKm, haversineDistanceKm } from "@/lib/geo"
 import type * as GeoJSON from "geojson"
@@ -540,25 +540,14 @@ export default function GoogleLikeMap() {
   return (
     <div className="relative h-[calc(100dvh-64px)] w-full bg-background">
       {/* Top Google-like bar */}
-      <div className="pointer-events-auto absolute left-0 right-0 top-0 z-20 flex items-center gap-2 p-3">
-        <div className="flex flex-1 items-center gap-2 rounded-lg bg-card p-2 shadow">
-          <Search className="h-5 w-5 text-muted-foreground" aria-hidden />
-          <Input
-            aria-label="Search places"
-            placeholder="Search Google-like map"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            className="border-0 shadow-none focus-visible:ring-0"
-          />
-          <Button variant="secondary" onClick={() => {}}>
-            Search
-          </Button>
-        </div>
+      <div className="pointer-events-auto absolute left-0 right-0 top-0 z-20 flex items-center justify-between gap-2 p-3">
+        {/* keep mode buttons on the left */}
         <div className="hidden md:flex items-center gap-2">
           <ModeButton value="driving-car" icon={Car} label="Drive" />
           <ModeButton value="cycling-regular" icon={Bike} label="Bike" />
           <ModeButton value="foot-walking" icon={Footprints} label="Walk" />
         </div>
+        {/* keep utility controls on the right */}
         <div className="flex items-center gap-2">
           <Button variant="secondary" onClick={locateMe} aria-label="Locate me">
             <LocateFixed className="h-4 w-4" />
