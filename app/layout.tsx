@@ -9,8 +9,8 @@ import { Suspense } from "react"
 import { ThemeProvider } from "@/components/theme-provider"
 
 export const metadata: Metadata = {
-  title: "NavKit — Leaflet + ORS",
-  description: "Modern navigation demo with Leaflet and OpenRouteService",
+  title: "NavKit — Smart Navigation",
+  description: "Modern, privacy-friendly navigation with turn-by-turn routing, isochrones, elevation profiles, and live data overlays.",
   generator: "v0.app",
 }
 
@@ -24,13 +24,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
           crossOrigin="anonymous"
         />
-        <meta name="theme-color" content="#1a73e8" />
+        <meta name="theme-color" content="#3b82f6" />
       </head>
       <body className="font-sans bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <Suspense fallback={<div>Loading...</div>}>
             <SiteHeader />
-            <main className="min-h-[calc(100dvh-56px)]" id="main-content">
+            <main className="min-h-[calc(100dvh-64px)]" id="main-content">
               {children}
             </main>
           </Suspense>

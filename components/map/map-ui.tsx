@@ -63,7 +63,7 @@ export default function MapUI() {
 
   // Map init once
   useEffect(() => {
-    const mounted = true
+    let mounted = true
     ;(async () => {
       if (typeof window === "undefined") return
       const L = await import("leaflet")
@@ -132,6 +132,7 @@ export default function MapUI() {
     })()
 
     return () => {
+      mounted = false
       // Cleanup map on unmount
       try {
         const map = mapRef.current
@@ -288,7 +289,6 @@ export default function MapUI() {
       return
     }
     const data = await res.json()
-    ;(window as any).__matrix = data
     setActiveTab("directions")
   }
 

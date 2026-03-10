@@ -8,7 +8,7 @@ const GooglePlusMap = dynamic(() => import("@/components/map/google-plus-map").t
 
 export default function MapPlusPage() {
   return (
-    <main className="h-[calc(100dvh-0px)] w-full">
+    <main className="h-[calc(100dvh-64px)] w-full">
       <GooglePlusMap />
     </main>
   )

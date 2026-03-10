@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ElevationChart } from "@/components/charts/elevation-chart"
-import { formatDistanceKm, formatDuration } from "@/lib/geo"
+import { formatDistanceKm, formatDuration, haversineKm } from "@/lib/geo"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge"
 
 type LModule = typeof import("leaflet")
 
-type Mode = "driving" | "cycling" | "foot"
+type Mode = "driving-car" | "cycling-regular" | "foot-walking"
 
 type GeocodeResult = {
   name: string
@@ -41,8 +41,8 @@ export function GooglePlusMap() {
   const watchIdRef = useRef<number | null>(null)
 
   const [ready, setReady] = useState(false)
-  const [center, setCenter] = useState<[number, number]>([-73.9857, 40.7484]) // lon, lat (NYC fallback)
-  const [mode, setMode] = useState<Mode>("driving")
+  const [center, setCenter] = useState<[number, number]>([40.7484, -73.9857]) // lat, lon (NYC fallback)
+  const [mode, setMode] = useState<Mode>("driving-car")
   const [eco, setEco] = useState(false)
   const [avoid, setAvoid] = useState<{ highways: boolean; tolls: boolean; ferries: boolean }>({
     highways: false,
@@ -188,17 +188,6 @@ export function GooglePlusMap() {
     }
     return min
   }
-  function haversineKm(a: [number, number], b: [number, number]) {
-    const R = 6371
-    const toRad = (x: number) => (x * Math.PI) / 180
-    const dLat = toRad(b[1] - a[1])
-    const dLon = toRad(b[0] - a[0])
-    const lat1 = toRad(a[1])
-    const lat2 = toRad(b[1])
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-    return 2 * R * Math.asin(Math.sqrt(h))
-  }
-
   async function searchPlaces(q: string) {
     setQuery(q)
     if (!q || q.length < 3) {
@@ -337,20 +326,22 @@ export function GooglePlusMap() {
     const coords: [number, number][] = route.geometry.coordinates
     const step = Math.max(1, Math.floor(coords.length / 100))
     const sampled = coords.filter((_, i) => i % step === 0)
-    const pathParam = sampled.map((c) => `${c[1]},${c[0]}`).join("|")
     try {
-      const res = await fetch(
-        `https://api.open-elevation.com/api/v1/profile?format=json&shape=${encodeURIComponent(pathParam)}`,
-      )
+      const res = await fetch("/api/external/elevation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ points: sampled }),
+      })
       const data = await res.json()
+      const elevations: number[] = data?.elevations ?? []
       const pts: { d: number; elev: number }[] = []
       let dist = 0
-      for (let i = 0; i < data?.profile?.length; i++) {
-        const p = data.profile[i]
-        pts.push({ d: dist, elev: p.elevation })
-        if (i < data.profile.length - 1) {
-          const a: [number, number] = [data.profile[i].longitude, data.profile[i].latitude]
-          const b: [number, number] = [data.profile[i + 1].longitude, data.profile[i + 1].latitude]
+      for (let i = 0; i < sampled.length; i++) {
+        pts.push({ d: parseFloat(dist.toFixed(3)), elev: elevations[i] ?? 0 })
+        if (i < sampled.length - 1) {
+          // sampled coords are [lon, lat]; haversineKm expects [lat, lon]
+          const a: [number, number] = [sampled[i][1], sampled[i][0]]
+          const b: [number, number] = [sampled[i + 1][1], sampled[i + 1][0]]
           dist += haversineKm(a, b)
         }
       }
@@ -413,9 +404,9 @@ export function GooglePlusMap() {
                   <SelectValue placeholder="Mode" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="driving">Driving</SelectItem>
-                  <SelectItem value="cycling">Cycling</SelectItem>
-                  <SelectItem value="foot">Walking</SelectItem>
+                  <SelectItem value="driving-car">Driving</SelectItem>
+                  <SelectItem value="cycling-regular">Cycling</SelectItem>
+                  <SelectItem value="foot-walking">Walking</SelectItem>
                 </SelectContent>
               </Select>
               <Button onClick={() => reverseWaypoints()} variant="outline" aria-label="Swap origin/destination">

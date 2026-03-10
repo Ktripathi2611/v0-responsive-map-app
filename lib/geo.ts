@@ -21,9 +21,6 @@ export function polylineDistanceKm(points: Array<[number, number]>) {
   return sum
 }
 
-export function haversineDistanceKm(a: [number, number], b: [number, number]) {
-  return haversineKm(a, b)
-}
 
 export function formatDistanceKm(meters: number) {
   if (meters < 950) return `${Math.round(meters)} m`
