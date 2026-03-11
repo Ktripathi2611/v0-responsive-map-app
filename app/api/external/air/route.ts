@@ -10,19 +10,20 @@ export async function GET(req: Request) {
   if (!isFinite(latNum) || !isFinite(lonNum)) {
     return NextResponse.json({ error: "lat/lon required as numbers" }, { status: 400 })
   }
-  const url = `https://api.openaq.org/v2/latest?coordinates=${latNum},${lonNum}&radius=5000&limit=1`
+  const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${latNum}&longitude=${lonNum}&current=us_aqi`
 
-  const r = await fetch(url, { next: { revalidate: 300 } }) // cache 5 min on Vercel
+  const r = await fetch(url, { next: { revalidate: 300 } })
   if (!r.ok) {
     return NextResponse.json({ error: "upstream error", status: r.status }, { status: 502 })
   }
   const j = await r.json()
-  const m = j?.results?.[0]?.measurements?.[0]
+  const aqi = j?.current?.us_aqi
+  
   return new NextResponse(
     JSON.stringify({
-      aqi: m?.value ?? null,
-      parameter: m?.parameter ?? null,
-      unit: m?.unit ?? null,
+      aqi: aqi ?? null,
+      parameter: "US AQI",
+      unit: "Index",
     }),
     {
       headers: {

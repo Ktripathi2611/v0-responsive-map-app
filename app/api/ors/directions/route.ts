@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const text = await res.text()
+      console.error(`ORS Directions Error [${res.status}]:`, text)
       return new Response(text || "ORS error", { status: res.status })
     }
 

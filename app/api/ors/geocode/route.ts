@@ -22,7 +22,8 @@ export async function GET(req: NextRequest) {
     const focusParams =
       Number.isFinite(lat) && Number.isFinite(lon) ? `&focus.point.lat=${lat}&focus.point.lon=${lon}` : ""
 
-    const url = `${ORS_BASE}/geocode/search?text=${encodeURIComponent(q)}&size=${size}${focusParams}`
+    const key = process.env.ORS_API_KEY
+    const url = `${ORS_BASE}/geocode/search?api_key=${key}&text=${encodeURIComponent(q)}&size=${size}${focusParams}`
     const res = await fetch(url, { headers: orsHeaders() })
 
     if (!res.ok) {

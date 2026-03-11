@@ -13,6 +13,7 @@ import {
   X, Route, Navigation, LocateFixed, Ruler, Trash2, Bike, Car, Footprints,
   Accessibility, Truck, PanelLeftOpen, Play, Square, Download, Leaf,
   Fuel, Flame, Map, ChevronDown, ChevronUp, Search, TreePine,
+  CloudSun, Wind, Zap, AlertTriangle, Info,
 } from "lucide-react"
 import type { LatLngExpression } from "leaflet"
 import { formatDistanceKm, formatDuration, haversineKm } from "@/lib/geo"
@@ -101,6 +102,7 @@ export default function GoogleLikeMap() {
   const replayIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const measurePointsRef = useRef<[number, number][]>([])
   const measurePolylineRef = useRef<import("leaflet").Polyline | null>(null)
+  const evLayerRef = useRef<import("leaflet").LayerGroup | null>(null)
   const primaryCoordsRef = useRef<[number, number][]>([])
   const [leafletReady, setLeafletReady] = useState(false)
 
@@ -134,6 +136,8 @@ export default function GoogleLikeMap() {
   const [bottomBar, setBottomBar] = useState<{ dist: number; dur: number; co2g: number; costLabel: string } | null>(null)
   const [loadingDirections, setLoadingDirections] = useState(false)
   const [directionsError, setDirectionsError] = useState<string | null>(null)
+  const [evStatsOn, setEvStatsOn] = useState(false)
+  const [evLoading, setEvLoading] = useState(false)
 
   const measureModeRef = useRef<"off" | "distance">("off")
   useEffect(() => { measureModeRef.current = measureMode }, [measureMode])
@@ -150,6 +154,18 @@ export default function GoogleLikeMap() {
       ? `/api/ors/geocode?text=${encodeURIComponent(destinationText)}${centerBias ? `&lat=${centerBias.lat}&lon=${centerBias.lon}` : ""}`
       : null,
     fetcher,
+  )
+
+  // Floating Data (Weather & AQI)
+  const { data: weather } = useSWR(
+    centerBias ? `/api/external/weather?lat=${centerBias.lat}&lon=${centerBias.lon}` : null,
+    fetcher,
+    { refreshInterval: 300000 } // 5 min
+  )
+  const { data: air } = useSWR(
+    centerBias ? `/api/external/air?lat=${centerBias.lat}&lon=${centerBias.lon}` : null,
+    fetcher,
+    { refreshInterval: 600000 } // 10 min
   )
 
   // ── Leaflet init ──────────────────────────────────────────────────────────
@@ -202,6 +218,7 @@ export default function GoogleLikeMap() {
     markerLayerRef.current = L.layerGroup().addTo(map)
     measureLayerRef.current = L.layerGroup().addTo(map)
     poiLayerRef.current = L.layerGroup().addTo(map)
+    evLayerRef.current = L.layerGroup().addTo(map)
 
     L.control.layers(
       { Street: osm, Satellite: sat, Topographic: topo, Cycling: bike },
@@ -210,6 +227,7 @@ export default function GoogleLikeMap() {
         Isochrones: isochroneLayerRef.current,
         Markers: markerLayerRef.current,
         POIs: poiLayerRef.current,
+        "EV Stations": evLayerRef.current,
       },
       { position: "bottomright", collapsed: true },
     ).addTo(map)
@@ -310,7 +328,14 @@ export default function GoogleLikeMap() {
       const res = await fetch("/api/ors/directions", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       })
-      if (!res.ok) { setDirectionsError("Routing failed. Check your API key."); return }
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          setDirectionsError("Invalid or missing API key. Please check your .env.local")
+        } else {
+          setDirectionsError("Routing failed. The service might be temporarily unavailable.")
+        }
+        return
+      }
       const json: DirectionsResponse = await res.json()
 
       routeLayersRef.current!.clearLayers()
@@ -434,6 +459,30 @@ export default function GoogleLikeMap() {
     } catch { /* silent */ } finally { setPoisLoading(false) }
   }, [centerBias, poiCategory, L])
 
+  // ── EV Search ─────────────────────────────────────────────────────────────
+  const toggleEVLayer = useCallback(async () => {
+    if (!L || !mapRef.current || !centerBias) return
+    if (evStatsOn) {
+      evLayerRef.current?.clearLayers()
+      setEvStatsOn(false)
+      return
+    }
+
+    setEvLoading(true)
+    try {
+      const res = await fetch(`/api/external/ev?lat=${centerBias.lat}&lon=${centerBias.lon}&distance=10`)
+      if (!res.ok) return
+      const data = await res.json()
+      evLayerRef.current?.clearLayers()
+      data.forEach((p: any) => {
+        L!.circleMarker([p.lat, p.lon], {
+          radius: 8, color: "#0ea5e9", weight: 2, fillColor: "#0ea5e9", fillOpacity: 0.8,
+        }).addTo(evLayerRef.current!).bindPopup(`<b>⚡ ${p.title}</b><br/><small>${p.address}</small>`)
+      })
+      setEvStatsOn(true)
+    } catch { /* silent */ } finally { setEvLoading(false) }
+  }, [centerBias, evStatsOn, L])
+
   // ── Map controls ──────────────────────────────────────────────────────────
   const locateMe = useCallback(() => {
     navigator.geolocation?.getCurrentPosition(({ coords: { latitude, longitude } }) => {
@@ -455,9 +504,11 @@ export default function GoogleLikeMap() {
     poiLayerRef.current?.clearLayers()
     measurePointsRef.current = []
     measurePolylineRef.current?.remove(); measurePolylineRef.current = null
+    evLayerRef.current?.clearLayers()
     primaryCoordsRef.current = []
     stopReplay()
     setSteps([]); setRouteMetrics([]); setBottomBar(null); setMeasuredKm(0); setPois([])
+    setEvStatsOn(false)
     if (userCircleRef.current) userCircleRef.current.addTo(markerLayerRef.current!)
   }, [stopReplay])
 
@@ -466,6 +517,7 @@ export default function GoogleLikeMap() {
     setOrigin([lat, lon])
     setOriginText(f.properties?.label ?? `${lat.toFixed(5)}, ${lon.toFixed(5)}`)
     L?.marker([lat, lon]).addTo(markerLayerRef.current!)
+    mapRef.current?.setView([lat, lon], 13) // Re-center to update Weather/AQI/Bias
   }, [L])
 
   const pickDestination = useCallback((f: GeocodeFeature) => {
@@ -473,6 +525,7 @@ export default function GoogleLikeMap() {
     setDestination([lat, lon])
     setDestinationText(f.properties?.label ?? `${lat.toFixed(5)}, ${lon.toFixed(5)}`)
     L?.marker([lat, lon]).addTo(markerLayerRef.current!)
+    mapRef.current?.setView([lat, lon], 13) // Re-center to update Weather/AQI/Bias
   }, [L])
 
   // ── Sub-components ────────────────────────────────────────────────────────
@@ -782,6 +835,27 @@ export default function GoogleLikeMap() {
                   </button>
                 </div>
 
+                {/* EV Stations Toggle */}
+                <div className={cn(
+                  "flex items-center justify-between rounded-xl border px-3 py-2.5",
+                  evStatsOn ? "border-sky-500/50 bg-sky-500/8" : "border-border/50",
+                )}>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Zap className="h-4 w-4 text-sky-500" />
+                    <span className="font-medium">EV Charging Stations</span>
+                  </div>
+                  <button
+                    onClick={toggleEVLayer}
+                    disabled={evLoading}
+                    className={cn(
+                      "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
+                      evStatsOn ? "bg-sky-500 text-white" : "bg-muted text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {evLoading ? "..." : evStatsOn ? "On" : "Off"}
+                  </button>
+                </div>
+
                 {/* POI Search */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium flex items-center gap-2"><TreePine className="h-3.5 w-3.5 text-violet-500" /> Nearby Places</p>
@@ -864,6 +938,43 @@ export default function GoogleLikeMap() {
             <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-foreground")} />
           </button>
         ))}
+      </div>
+
+      {/* ── Weather & Air Floating Display ─────────────────────────────── */}
+      <div className="absolute right-3 bottom-12 z-20 flex flex-col gap-2 scale-90 sm:scale-100 origin-bottom-right">
+        {(weather || air) && (
+          <div className="glass-panel p-3 rounded-2xl shadow-xl border border-white/10 flex flex-col gap-2 min-w-[140px]">
+            {weather && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CloudSun className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-semibold">{weather.temp}°C</span>
+                </div>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase">{weather.summary}</span>
+              </div>
+            )}
+            {air && (
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-2">
+                <div className="flex items-center gap-2">
+                  <Wind className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm font-semibold">AQI {Math.round(air.aqi)}</span>
+                </div>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase">{air.unit}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* API Key Warning */}
+        {directionsError?.includes("API key") && (
+          <div className="bg-destructive/15 border border-destructive/20 p-3 rounded-2xl flex gap-3 max-w-[240px]">
+            <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-bold text-destructive">API Key Required</span>
+              <p className="text-[10px] text-destructive/80 leading-tight">ORS_API_KEY is missing in your .env.local. Directions and Geocoding will not function.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Bottom status bar ───────────────────────────────────────────── */}

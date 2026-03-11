@@ -5,5 +5,9 @@ export function orsHeaders() {
   if (!key) {
     throw new Error("Missing ORS_API_KEY")
   }
-  return { Authorization: key, "Content-Type": "application/json" }
+  return { 
+    "Authorization": key, 
+    "api-key": key,
+    "Content-Type": "application/json" 
+  }
 }
